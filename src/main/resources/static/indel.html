@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        #chat-container {
+            width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            border: 1px solid #ccc;
+        }
+        #chat-messages {
+            height: 300px;
+            border: 1px solid #eee;
+            margin: 10px 0;
+            padding: 10px;
+            overflow-y: auto;
+        }
+        #connection-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+<div id="chat-container">
+    <h2>WebSocket Chat</h2>
+    <div id="connection-status">Connecting...</div>
+    <div id="chat-messages"></div>
+    <div>
+        <input type="text" id="message" placeholder="Type a message...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<script>
+    let stompClient = null;
+    const username = 'User' + Math.floor(Math.random() * 1000);
+
+    function connect() {
+        // Enable SockJS debug
+        window.sockjs_debug = true;
+
+        // Create SockJS instance with explicit server URL
+        const socket = new SockJS('/ws');
+
+        // Create STOMP client
+        stompClient = Stomp.over(socket);
+
+        // Enable STOMP debug
+        stompClient.debug = function(str) {
+            console.log('STOMP: ', str);
+        };
+
+        // Connect to the STOMP server
+        stompClient.connect(
+            {},
+            function(frame) {
+                console.log('Connected: ' + frame);
+                document.getElementById('connection-status').textContent = 'Connected!';
+
+                // Subscribe to the public topic
+                stompClient.subscribe('/topic/public', function(response) {
+                    const message = JSON.parse(response.body);
+                    displayMessage(message);
+                });
+
+                // Send join message
+                sendJoinMessage();
+            },
+            function(error) {
+                console.error('STOMP error:', error);
+                document.getElementById('connection-status').textContent =
+                    'Connection failed. Retrying in 5 seconds...';
+                setTimeout(connect, 5000);
+            }
+        );
+
+        socket.onclose = function() {
+            console.log('SockJS connection closed');
+            document.getElementById('connection-status').textContent =
+                'Connection closed. Retrying in 5 seconds...';
+            setTimeout(connect, 5000);
+        };
+    }
+
+    function sendMessage() {
+        const messageContent = document.getElementById('message').value.trim();
+        if(messageContent && stompClient) {
+            const chatMessage = {
+                sender: username,
+                content: messageContent,
+                type: 'CHAT'
+            };
+            stompClient.send("/app/chat.send", {}, JSON.stringify(chatMessage));
+            document.getElementById('message').value = '';
+        }
+    }
+
+    function sendJoinMessage() {
+        if(stompClient) {
+            const joinMessage = {
+                sender: username,
+                type: 'JOIN'
+            };
+            stompClient.send("/app/chat.join", {}, JSON.stringify(joinMessage));
+        }
+    }
+
+    function displayMessage(message) {
+        const messageElement = document.createElement('div');
+        messageElement.textContent = `${message.sender}: ${message.content}`;
+        document.getElementById('chat-messages').appendChild(messageElement);
+    }
+
+    // Connect when page loads
+    connect();
+
+    // Add event listener for Enter key
+    document.getElementById('message').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
+</script>
+</body>
+</html>
